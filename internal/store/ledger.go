@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/marwanbukhori/go-brainstorming/internal/ledger"
+	"github.com/marwanbukhori/go-brainstorming/internal/money"
 )
 
 // PostEntries validates the batch with ledger.Balanced (per-transaction
@@ -38,4 +39,30 @@ func (s *Store) PostEntries(ctx context.Context, tx pgx.Tx, entries []ledger.Ent
 		}
 	}
 	return nil
+}
+
+// FoldInvariant returns the global sums of DEBIT and CREDIT amounts across the
+// whole ledger. The continuous invariant is debits == credits (ADR-002) — true
+// at all times because posting is synchronous (PostEntries runs in the same tx
+// as the state change). It is expressed as a SUM/fold rather than a balance
+// column so it survives the future shard-by-pump migration (ADR-010 framing):
+// post-shard each shard folds its own slice and the residuals fold to zero
+// globally — the query shape does not change.
+//
+// The fold is the GLOBAL detector of imbalance. It is necessary-but-not-
+// sufficient: the ledger_entries CHECK guards only amount_minor > 0 and the
+// direction token, so an out-of-band unbalanced INSERT would pass the table
+// CHECK yet make this fold report debits != credits. Balance itself is guarded
+// by PostEntries/Balanced; FoldInvariant surfaces any breach.
+func (s *Store) FoldInvariant(ctx context.Context) (debits money.Amount, credits money.Amount, err error) {
+	var d, c int64
+	err = s.Pool.QueryRow(ctx, `
+		SELECT
+			COALESCE(SUM(amount_minor) FILTER (WHERE direction = 'DEBIT'), 0),
+			COALESCE(SUM(amount_minor) FILTER (WHERE direction = 'CREDIT'), 0)
+		FROM ledger_entries`).Scan(&d, &c)
+	if err != nil {
+		return 0, 0, fmt.Errorf("fold invariant: %w", err)
+	}
+	return money.Amount(d), money.Amount(c), nil
 }
