@@ -35,6 +35,13 @@ var ErrVersionConflict = errors.New("optimistic version conflict")
 // ErrNotFound is returned when a transaction row does not exist.
 var ErrNotFound = errors.New("transaction not found")
 
+// ErrCaptureExceedsAuth is returned by the Capture service when the captured
+// amount is strictly greater than the authorized amount (spec §8 / ADR money
+// rules). The boundary captured == auth IS allowed. On this error the capture
+// transaction is rolled back: status and version are left unchanged and no
+// ledger entries are posted.
+var ErrCaptureExceedsAuth = errors.New("captured amount exceeds authorized amount")
+
 // New opens a pgx connection pool against dsn and verifies connectivity.
 func New(ctx context.Context, dsn string) (*Store, error) {
 	pool, err := pgxpool.New(ctx, dsn)
