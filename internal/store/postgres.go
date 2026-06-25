@@ -58,13 +58,9 @@ func (s *Store) Close() {
 	}
 }
 
-// Migrate runs all up migrations embedded under migrations/ to the latest
-// version using golang-migrate over an iofs source and the pgx/v5 driver.
-//
-// NOTE (Phase 0): the migrations directory contains no SQL files yet — the
-// first migration (0001_transactions) lands in Phase 1. Do not call Migrate()
-// before a migration exists; golang-migrate returns "no migration found" /
-// ErrNilVersion against an empty source.
+// Migrate runs all embedded up-migrations to latest. With zero migration files
+// (Phase 0) it is a clean no-op; it returns nil on migrate.ErrNoChange and on
+// the iofs empty-source (fs.ErrNotExist) case, and surfaces all genuine errors.
 func (s *Store) Migrate() error {
 	src, err := iofs.New(migrationsFS, "migrations")
 	if err != nil {
@@ -78,6 +74,7 @@ func (s *Store) Migrate() error {
 	if err != nil {
 		return fmt.Errorf("store: migrate init: %w", err)
 	}
+	defer func() { _, _ = m.Close() }() // closes the iofs source AND the bridge *sql.DB
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		// Phase 0: migrations directory exists but contains no SQL files yet.
 		// iofs.First() returns fs.ErrNotExist when the source has zero migrations;
