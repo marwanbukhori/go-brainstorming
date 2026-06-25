@@ -10,7 +10,6 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"io/fs"
 
 	"github.com/golang-migrate/migrate/v4"
 	pgxv5 "github.com/golang-migrate/migrate/v4/database/pgx/v5"
@@ -19,9 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 )
 
-// migrationsFS embeds the migrations directory. The glob uses the directory
-// itself (not *.sql) so the embed compiles even before any SQL files exist —
-// Phase 0 has only a .keep placeholder; Phase 1 adds 0001_*.sql files.
+// migrationsFS embeds the migrations directory containing all SQL migration files.
 //
 //go:embed migrations
 var migrationsFS embed.FS
@@ -58,9 +55,8 @@ func (s *Store) Close() {
 	}
 }
 
-// Migrate runs all embedded up-migrations to latest. With zero migration files
-// (Phase 0) it is a clean no-op; it returns nil on migrate.ErrNoChange and on
-// the iofs empty-source (fs.ErrNotExist) case, and surfaces all genuine errors.
+// Migrate runs all embedded up-migrations to latest. Returns nil on
+// migrate.ErrNoChange (idempotent re-runs) and surfaces all genuine errors.
 func (s *Store) Migrate() error {
 	src, err := iofs.New(migrationsFS, "migrations")
 	if err != nil {
@@ -76,13 +72,6 @@ func (s *Store) Migrate() error {
 	}
 	defer func() { _, _ = m.Close() }() // closes the iofs source AND the bridge *sql.DB
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		// Phase 0: migrations directory exists but contains no SQL files yet.
-		// iofs.First() returns fs.ErrNotExist when the source has zero migrations;
-		// treat that as "nothing to run" rather than a hard error.
-		var pathErr *fs.PathError
-		if errors.As(err, &pathErr) && errors.Is(pathErr.Err, fs.ErrNotExist) {
-			return nil
-		}
 		return fmt.Errorf("store: migrate up: %w", err)
 	}
 	return nil
