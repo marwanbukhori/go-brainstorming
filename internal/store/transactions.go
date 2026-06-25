@@ -68,12 +68,18 @@ func (s *Store) ApplyTransitionTx(
 	e transaction.Event,
 	mutate func(*transaction.Transaction),
 ) (*transaction.Transaction, error) {
+	// Load the row only if it exists AND is still at expectedVersion. If the
+	// version has already been advanced by a concurrent writer the SELECT returns
+	// 0 rows — we surface that as ErrVersionConflict immediately, before the
+	// state-machine check, so callers never see ErrIllegalTransition due to a
+	// race. We distinguish "row never existed" (ErrNotFound) from "row exists
+	// but version mismatch" (ErrVersionConflict) via a second point-lookup.
 	const loadQ = `
 SELECT id, pump_id, status, fuel_grade,
        auth_amount_minor, captured_amount_minor, volume_ml,
        acquirer_ref, idempotency_key, version, created_at, updated_at
 FROM transactions
-WHERE id = $1`
+WHERE id = $1 AND version = $2`
 
 	var (
 		current transaction.Transaction
@@ -81,14 +87,24 @@ WHERE id = $1`
 		authMin int64
 		capMin  int64
 	)
-	err := tx.QueryRow(ctx, loadQ, id).Scan(
+	err := tx.QueryRow(ctx, loadQ, id, expectedVersion).Scan(
 		&current.ID, &current.PumpID, &status, &current.FuelGrade,
 		&authMin, &capMin, &current.VolumeML,
 		&current.AcquirerRef, &current.IdempotencyKey, &current.Version,
 		&current.CreatedAt, &current.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
+		// Could be not-found or version mismatch — distinguish with a point-lookup.
+		var exists bool
+		if scanErr := tx.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM transactions WHERE id = $1)`, id,
+		).Scan(&exists); scanErr != nil {
+			return nil, scanErr
+		}
+		if !exists {
+			return nil, ErrNotFound
+		}
+		return nil, ErrVersionConflict
 	}
 	if err != nil {
 		return nil, err

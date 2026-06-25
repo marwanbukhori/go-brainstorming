@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/marwanbukhori/go-brainstorming/internal/money"
 	"github.com/marwanbukhori/go-brainstorming/internal/transaction"
 )
 
@@ -94,5 +93,4 @@ func TestApplyTransitionNotFound(t *testing.T) {
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("ApplyTransition(missing) err = %v, want ErrNotFound", err)
 	}
-	_ = money.Amount(0) // money import kept consistent across store tests
 }
