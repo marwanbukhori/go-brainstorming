@@ -66,3 +66,27 @@ func TestIsZero(t *testing.T) {
 		t.Fatal("Amount(-1).IsZero() = true, want false")
 	}
 }
+
+func TestString(t *testing.T) {
+	cases := []struct {
+		in   Amount
+		want string
+	}{
+		{1234, "RM12.34"},
+		{100, "RM1.00"},
+		{0, "RM0.00"},
+		{9, "RM0.09"},
+		{99, "RM0.99"},
+		{5, "RM0.05"},
+		{-5, "-RM0.05"},
+		{-150, "-RM1.50"},
+		{-1234, "-RM12.34"},
+		{-9, "-RM0.09"},
+		{1000000, "RM10000.00"},
+	}
+	for _, c := range cases {
+		if got := c.in.String(); got != c.want {
+			t.Fatalf("Amount(%d).String() = %q, want %q", int64(c.in), got, c.want)
+		}
+	}
+}
