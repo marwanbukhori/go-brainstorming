@@ -17,6 +17,7 @@
 
 # Go (this repo will host the Go implementation later)
 /bin/
+/fuelpos
 *.test
 *.out
 coverage.*
